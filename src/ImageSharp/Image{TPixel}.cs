@@ -14,6 +14,7 @@ using SixLabors.ImageSharp.Formats;
 using SixLabors.ImageSharp.Memory;
 using SixLabors.ImageSharp.Metadata;
 using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
 
 namespace SixLabors.ImageSharp
 {
@@ -407,6 +408,23 @@ namespace SixLabors.ImageSharp
             this.EnsureNotDisposed();
 
             return visitor.VisitAsync(this, cancellationToken);
+        }
+
+        public override Task<T> AcceptAsync<T>(Func<IImageProcessingContext, Task<T>> f, CancellationToken cancellationToken = default)
+        {
+            this.EnsureNotDisposed();
+            IInternalImageProcessingContext<TPixel> ctx
+                = this.configuration.ImageOperationsProvider.CreateImageProcessingContext<TPixel>(this.configuration, this, true);
+            return f(ctx);
+
+        }
+        public override T Accept<T>(Func<IImageProcessingContext, T> f)
+        {
+            this.EnsureNotDisposed();
+            IInternalImageProcessingContext<TPixel> ctx
+                = this.configuration.ImageOperationsProvider.CreateImageProcessingContext<TPixel>(this.configuration, this, true);
+            return f(ctx);
+
         }
 
         /// <summary>

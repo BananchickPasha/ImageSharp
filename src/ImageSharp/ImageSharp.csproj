@@ -3,6 +3,7 @@
 
   <PropertyGroup>
     <AssemblyName>SixLabors.ImageSharp</AssemblyName>
+    <Version>1.0.0.0</Version>
     <AssemblyTitle>SixLabors.ImageSharp</AssemblyTitle>
     <RootNamespace>SixLabors.ImageSharp</RootNamespace>
     <PackageId>SixLabors.ImageSharp</PackageId>
