@@ -3,12 +3,14 @@
 
 using System;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using SixLabors.ImageSharp.Advanced;
 using SixLabors.ImageSharp.Formats;
 using SixLabors.ImageSharp.Metadata;
 using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
 
 namespace SixLabors.ImageSharp
 {
@@ -20,7 +22,7 @@ namespace SixLabors.ImageSharp
     public abstract partial class Image : IImage, IConfigurationProvider
     {
         private Size size;
-        private readonly Configuration configuration;
+        public readonly Configuration configuration;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="Image"/> class.
@@ -166,6 +168,20 @@ namespace SixLabors.ImageSharp
         /// <param name="visitor">The visitor.</param>
         /// <param name="cancellationToken">The token to monitor for cancellation requests.</param>
         internal abstract Task AcceptAsync(IImageVisitorAsync visitor, CancellationToken cancellationToken);
+
+        /// <summary>
+        ///
+        /// </summary>
+        /// <param name="f"></param>
+        /// <param name="cancellationToken"></param>
+        /// <typeparam name="T"></typeparam>
+        /// <returns></returns>
+        public abstract Task<T> AcceptAsync<T>(Func<IImageProcessingContext, Task<T>> f, CancellationToken cancellationToken = default);
+
+        public abstract T Accept<T>(Func<IImageProcessingContext, T> f);
+
+        [MethodImpl(InliningOptions.ColdPath)]
+        private static void ThrowObjectDisposedException(Type type) => throw new ObjectDisposedException(type.Name);
 
         private class EncodeVisitor : IImageVisitor, IImageVisitorAsync
         {
