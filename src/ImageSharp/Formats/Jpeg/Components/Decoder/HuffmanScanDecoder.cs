@@ -31,7 +31,7 @@ namespace SixLabors.ImageSharp.Formats.Jpeg.Components.Decoder
         /// <summary>
         /// Number of component in the current scan.
         /// </summary>
-        private int componentsCount;
+        private int scanComponentCount;
 
         /// <summary>
         /// The reset interval determined by RST markers.
@@ -112,11 +112,12 @@ namespace SixLabors.ImageSharp.Formats.Jpeg.Components.Decoder
         /// <summary>
         /// Decodes the entropy coded data.
         /// </summary>
-        public void ParseEntropyCodedData(int componentCount)
+        /// <param name="scanComponentCount">Component count in the current scan.</param>
+        public void ParseEntropyCodedData(int scanComponentCount)
         {
             this.cancellationToken.ThrowIfCancellationRequested();
 
-            this.componentsCount = componentCount;
+            this.scanComponentCount = scanComponentCount;
 
             this.scanBuffer = new HuffmanScanBuffer(this.stream);
 
@@ -148,9 +149,14 @@ namespace SixLabors.ImageSharp.Formats.Jpeg.Components.Decoder
 
         private void ParseBaselineData()
         {
-            if (this.componentsCount == this.frame.ComponentCount)
+            if (this.scanComponentCount != 1)
             {
                 this.ParseBaselineDataInterleaved();
+                this.spectralConverter.CommitConversion();
+            }
+            else if (this.frame.ComponentCount == 1)
+            {
+                this.ParseBaselineDataSingleComponent();
                 this.spectralConverter.CommitConversion();
             }
             else
@@ -161,7 +167,6 @@ namespace SixLabors.ImageSharp.Formats.Jpeg.Components.Decoder
 
         private void ParseBaselineDataInterleaved()
         {
-            // Interleaved
             int mcu = 0;
             int mcusPerColumn = this.frame.McusPerColumn;
             int mcusPerLine = this.frame.McusPerLine;
@@ -176,7 +181,7 @@ namespace SixLabors.ImageSharp.Formats.Jpeg.Components.Decoder
                 {
                     // Scan an interleaved mcu... process components in order
                     int mcuCol = mcu % mcusPerLine;
-                    for (int k = 0; k < this.componentsCount; k++)
+                    for (int k = 0; k < this.scanComponentCount; k++)
                     {
                         int order = this.frame.ComponentOrder[k];
                         JpegComponent component = this.components[order];
@@ -198,7 +203,7 @@ namespace SixLabors.ImageSharp.Formats.Jpeg.Components.Decoder
                             {
                                 if (buffer.NoData)
                                 {
-                                    // It is very likely that some spectral data was decoded before we encountered EOI marker
+                                    // It is very likely that some spectral data was decoded before we've encountered 'end of scan'
                                     // so we need to decode what's left and return (or maybe throw?)
                                     this.spectralConverter.ConvertStrideBaseline();
                                     return;
@@ -221,7 +226,7 @@ namespace SixLabors.ImageSharp.Formats.Jpeg.Components.Decoder
                     this.HandleRestart();
                 }
 
-                // convert from spectral to actual pixels via given converter
+                // Convert from spectral to actual pixels via given converter
                 this.spectralConverter.ConvertStrideBaseline();
             }
         }
@@ -261,6 +266,52 @@ namespace SixLabors.ImageSharp.Formats.Jpeg.Components.Decoder
             }
         }
 
+        private void ParseBaselineDataSingleComponent()
+        {
+            JpegComponent component = this.frame.Components[0];
+            int mcuLines = this.frame.McusPerColumn;
+            int w = component.WidthInBlocks;
+            int h = component.SamplingFactors.Height;
+            ref HuffmanTable dcHuffmanTable = ref this.dcHuffmanTables[component.DCHuffmanTableId];
+            ref HuffmanTable acHuffmanTable = ref this.acHuffmanTables[component.ACHuffmanTableId];
+
+            ref HuffmanScanBuffer buffer = ref this.scanBuffer;
+
+            for (int i = 0; i < mcuLines; i++)
+            {
+                this.cancellationToken.ThrowIfCancellationRequested();
+
+                // decode from binary to spectral
+                for (int j = 0; j < h; j++)
+                {
+                    Span<Block8x8> blockSpan = component.SpectralBlocks.DangerousGetRowSpan(j);
+                    ref Block8x8 blockRef = ref MemoryMarshal.GetReference(blockSpan);
+
+                    for (int k = 0; k < w; k++)
+                    {
+                        if (buffer.NoData)
+                        {
+                            // It is very likely that some spectral data was decoded before we've encountered 'end of scan'
+                            // so we need to decode what's left and return (or maybe throw?)
+                            this.spectralConverter.ConvertStrideBaseline();
+                            return;
+                        }
+
+                        this.DecodeBlockBaseline(
+                            component,
+                            ref Unsafe.Add(ref blockRef, k),
+                            ref dcHuffmanTable,
+                            ref acHuffmanTable);
+
+                        this.HandleRestart();
+                    }
+                }
+
+                // Convert from spectral to actual pixels via given converter
+                this.spectralConverter.ConvertStrideBaseline();
+            }
+        }
+
         private void CheckProgressiveData()
         {
             // Validate successive scan parameters.
@@ -283,7 +334,7 @@ namespace SixLabors.ImageSharp.Formats.Jpeg.Components.Decoder
                 }
 
                 // AC scans may have only one component.
-                if (this.componentsCount != 1)
+                if (this.scanComponentCount != 1)
                 {
                     invalid = true;
                 }
@@ -315,7 +366,7 @@ namespace SixLabors.ImageSharp.Formats.Jpeg.Components.Decoder
         {
             this.CheckProgressiveData();
 
-            if (this.componentsCount == 1)
+            if (this.scanComponentCount == 1)
             {
                 this.ParseProgressiveDataNonInterleaved();
             }
@@ -340,7 +391,7 @@ namespace SixLabors.ImageSharp.Formats.Jpeg.Components.Decoder
                     // Scan an interleaved mcu... process components in order
                     int mcuRow = mcu / mcusPerLine;
                     int mcuCol = mcu % mcusPerLine;
-                    for (int k = 0; k < this.componentsCount; k++)
+                    for (int k = 0; k < this.scanComponentCount; k++)
                     {
                         int order = this.frame.ComponentOrder[k];
                         JpegComponent component = this.components[order];

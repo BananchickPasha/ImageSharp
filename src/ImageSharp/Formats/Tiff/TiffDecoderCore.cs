@@ -13,7 +13,6 @@ using SixLabors.ImageSharp.IO;
 using SixLabors.ImageSharp.Memory;
 using SixLabors.ImageSharp.Metadata;
 using SixLabors.ImageSharp.Metadata.Profiles.Exif;
-using SixLabors.ImageSharp.Metadata.Profiles.Xmp;
 using SixLabors.ImageSharp.PixelFormats;
 
 namespace SixLabors.ImageSharp.Formats.Tiff
@@ -32,6 +31,11 @@ namespace SixLabors.ImageSharp.Formats.Tiff
         /// Gets or sets a value indicating whether the metadata should be ignored when the image is being decoded.
         /// </summary>
         private readonly bool ignoreMetadata;
+
+        /// <summary>
+        /// Gets the decoding mode for multi-frame images
+        /// </summary>
+        private readonly FrameDecodingMode decodingMode;
 
         /// <summary>
         /// The stream to decode from.
@@ -59,6 +63,7 @@ namespace SixLabors.ImageSharp.Formats.Tiff
 
             this.Configuration = configuration ?? Configuration.Default;
             this.ignoreMetadata = options.IgnoreMetadata;
+            this.decodingMode = options.DecodingMode;
             this.memoryAllocator = this.Configuration.MemoryAllocator;
         }
 
@@ -113,6 +118,11 @@ namespace SixLabors.ImageSharp.Formats.Tiff
         public TiffFillOrder FillOrder { get; set; }
 
         /// <summary>
+        /// Gets or sets the extra samples type.
+        /// </summary>
+        public TiffExtraSampleType? ExtraSamplesType { get; set; }
+
+        /// <summary>
         /// Gets or sets the JPEG tables when jpeg compression is used.
         /// </summary>
         public byte[] JpegTables { get; set; }
@@ -160,11 +170,16 @@ namespace SixLabors.ImageSharp.Formats.Tiff
                 cancellationToken.ThrowIfCancellationRequested();
                 ImageFrame<TPixel> frame = this.DecodeFrame<TPixel>(ifd, cancellationToken);
                 frames.Add(frame);
+
+                if (this.decodingMode is FrameDecodingMode.First)
+                {
+                    break;
+                }
             }
 
             ImageMetadata metadata = TiffDecoderMetadataCreator.Create(frames, this.ignoreMetadata, reader.ByteOrder, reader.IsBigTiff);
 
-            // TODO: Tiff frames can have different sizes
+            // TODO: Tiff frames can have different sizes.
             ImageFrame<TPixel> root = frames[0];
             this.Dimensions = root.Size();
             foreach (ImageFrame<TPixel> frame in frames)
@@ -265,12 +280,10 @@ namespace SixLabors.ImageSharp.Formats.Tiff
 
                 return memory;
             }
-            else
-            {
-                DebugGuard.IsTrue(array is ulong[], $"Expected {nameof(UInt64)} array.");
-                span = (ulong[])array;
-                return null;
-            }
+
+            DebugGuard.IsTrue(array is ulong[], $"Expected {nameof(UInt64)} array.");
+            span = (ulong[])array;
+            return null;
         }
 
         /// <summary>
@@ -304,8 +317,11 @@ namespace SixLabors.ImageSharp.Formats.Tiff
                     case 2:
                         bitsPerPixel = this.BitsPerSample.Channel2;
                         break;
+                    case 3:
+                        bitsPerPixel = this.BitsPerSample.Channel2;
+                        break;
                     default:
-                        TiffThrowHelper.ThrowNotSupported("More then 3 color channels are not supported");
+                        TiffThrowHelper.ThrowNotSupported("More then 4 color channels are not supported");
                         break;
                 }
             }
@@ -359,6 +375,7 @@ namespace SixLabors.ImageSharp.Formats.Tiff
                 TiffBasePlanarColorDecoder<TPixel> colorDecoder = TiffColorDecoderFactory<TPixel>.CreatePlanar(
                     this.ColorType,
                     this.BitsPerSample,
+                    this.ExtraSamplesType,
                     this.ColorMap,
                     this.ReferenceBlackAndWhite,
                     this.YcbcrCoefficients,
@@ -440,6 +457,7 @@ namespace SixLabors.ImageSharp.Formats.Tiff
                 this.memoryAllocator,
                 this.ColorType,
                 this.BitsPerSample,
+                this.ExtraSamplesType,
                 this.ColorMap,
                 this.ReferenceBlackAndWhite,
                 this.YcbcrCoefficients,
